@@ -3,6 +3,8 @@ package yptr_test
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 
 	yptr "github.com/zachelrath/yaml-jsonpointer"
@@ -83,6 +85,9 @@ spec:
       containers:
       - name: app
         image: nginx
+      - name: cache
+        image: redis
+        tag: 6.3.2
 `
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(src), &root); err != nil {
@@ -101,6 +106,7 @@ spec:
 		{`/spec/template/spec/replicas`, "1", 5, 17},
 		{`/spec/template/spec/containers/0/image`, "nginx", 8, 16},
 		{`/spec/template/spec/containers/~{"name":"app"}/image`, "nginx", 8, 16},
+		{`/spec/template/spec/containers/~{"name":"cache"}/tag`, "6.3.2", 11, 14},
 	}
 
 	for i, tc := range testCases {
@@ -136,6 +142,116 @@ spec:
 			}
 			if got, want := err, tc.err; got.Error() != want.Error() && !errors.Is(got, want) {
 				t.Errorf("got: %v, want: %v", got, want)
+			}
+		})
+	}
+}
+
+func TestFindAll(t *testing.T) {
+	src := `
+spec:
+  templates:
+  - replicas: 1
+    containers:
+    - name: app
+      image: nginx
+    - name: cache
+      image: redis
+      tag: 6.3.2
+  - replicas: 2
+    containers:
+    - name: db
+      image: postgres
+`
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(src), &root); err != nil {
+		t.Fatal(err)
+	}
+	// If a path is not found, no error should be returned, just an empty array
+	results, err := yptr.FindAll(&root, "/bad/path")
+	if err != nil {
+		t.Fatalf("expecting no error, got: %v", err)
+	}
+	if len(results) > 0 {
+		t.Fatalf("expecting empty results array, got: %v", results)
+	}
+
+	testCases := []struct {
+		ptr  string
+		want []string
+	}{
+		{`/spec/templates/~{}/containers/0/image`, []string{"nginx", "postgres"}},
+		{`/spec/templates/~{}/replicas`, []string{"1", "2"}},
+		{`/spec/templates/~{}/containers/~{}/tag`, []string{"6.3.2"}},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			results, err := yptr.FindAll(&root, tc.ptr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(results))
+			for i, r := range results {
+				got[i] = r.Value
+			}
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got: %v, want: %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindAllStrict(t *testing.T) {
+	src := `
+spec:
+  templates:
+  - replicas: 1
+    apiVersion: v1beta
+    containers:
+    - name: app
+      image: nginx
+    - name: cache
+      image: redis
+      tag: 6.3.2
+  - replicas: 2
+    apiVersion: v1
+    containers:
+    - name: db
+      image: postgres
+`
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(src), &root); err != nil {
+		t.Fatal(err)
+	}
+	// If a path is not found, ErrNotFound should be returned
+	if _, err := yptr.FindAllStrict(&root, "/bad/path"); !errors.Is(err, yptr.ErrNotFound) {
+		t.Fatalf("expecting ErrNotFound, got: %v", err)
+	}
+
+	testCases := []struct {
+		ptr  string
+		want []string
+	}{
+		{`/spec/templates/0/containers/1/image`, []string{"redis"}},
+		{`/spec/templates/~{}/replicas`, []string{"1", "2"}},
+		{`/spec/templates/~{"apiVersion":"v1beta"}/containers/~{}/image`, []string{"nginx", "redis"}},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			results, err := yptr.FindAllStrict(&root, tc.ptr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(results))
+			for i, r := range results {
+				got[i] = r.Value
+			}
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got: %v, want: %v", got, tc.want)
 			}
 		})
 	}
