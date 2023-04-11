@@ -1,4 +1,4 @@
-module github.com/vmware-labs/yaml-jsonpointer
+module github.com/zachelrath/yaml-jsonpointer
 
 go 1.14
 

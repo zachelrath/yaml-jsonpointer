@@ -1,6 +1,3 @@
-// Copyright 2020 VMware, Inc.
-// SPDX-License-Identifier: BSD-2-Clause
-
 package yptr_test
 
 import (
@@ -8,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	yptr "github.com/vmware-labs/yaml-jsonpointer"
+	yptr "github.com/zachelrath/yaml-jsonpointer"
 	yaml "gopkg.in/yaml.v3"
 )
 
