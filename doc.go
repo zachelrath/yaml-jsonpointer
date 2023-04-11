@@ -1,7 +1,7 @@
 // Copyright 2023 Zach McElrath
 
 /*
-Package yptr is a JSONPointer implementation that can walk though a yaml.Node tree.
+Package yptr is a JSONPointer implementation that can walk through a yaml.Node tree.
 
 yaml.Nodes preserve comments and locations in the source and can be useful to implement editing in-place
 functionality that uses JSONPointer to locate the fields to be edited.
@@ -25,7 +25,10 @@ against elements of an array.
 The array element is selected if the query-by-example object is a (recursive) subset of the element.
 
 The ~{...} extension can potentially locate multiple matches. For example, "~{}" effectively acts as a wildcard.
-This library offers an API to retrieve multiple matches ("FindAll") or to fetch only one match and error if multiple matches are found ("Find").
+This library offers the following APIs:
+  - `FindAll`: retrieve multiple matches
+  - `FindAllStrict`: retrieve multiple matches, but error if any paths are not found while traversing
+  - `Find`: fetch only one match, and error if multiple matches are found
 
 JSONPointer is designed to locate exactly one node in the tree. This can be achieved only if the effective
 schema of the JSON/YAML document mandates that there is an identifying key in each array element you want to point to.

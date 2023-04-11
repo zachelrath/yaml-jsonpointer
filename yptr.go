@@ -1,6 +1,7 @@
 package yptr
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,9 +17,20 @@ var (
 	ErrNotFound = fmt.Errorf("not found")
 )
 
-// FindAll finds all locations in the json/yaml tree pointed by root that match the extended
+// FindAll finds any locations in the json/yaml tree pointed by root that match the extended
 // JSONPointer passed in ptr.
 func FindAll(root *yaml.Node, ptr string) ([]*yaml.Node, error) {
+	return findAll(root, ptr, false)
+}
+
+// FindAllStrict finds all locations in the json/yaml tree pointed by root that match the extended
+// JSONPointer passed in ptr. Any sequence or mapping nodes encountered as part of traversal
+// must match the expected path, otherwise ErrNotFound will be returned with no results.
+func FindAllStrict(root *yaml.Node, ptr string) ([]*yaml.Node, error) {
+	return findAll(root, ptr, true)
+}
+
+func findAll(root *yaml.Node, ptr string, matchRequired bool) ([]*yaml.Node, error) {
 	if ptr == "" {
 		return nil, fmt.Errorf("invalid empty pointer")
 	}
@@ -30,7 +42,7 @@ func FindAll(root *yaml.Node, ptr string) ([]*yaml.Node, error) {
 	}
 	toks := p.DecodedTokens()
 
-	res, err := find(root, toks)
+	res, err := find(root, toks, matchRequired)
 	if err != nil {
 		return nil, fmt.Errorf("%q: %w", ptr, err)
 	}
@@ -39,7 +51,7 @@ func FindAll(root *yaml.Node, ptr string) ([]*yaml.Node, error) {
 
 // Find is like FindAll but returns ErrTooManyResults if multiple matches are located.
 func Find(root *yaml.Node, ptr string) (*yaml.Node, error) {
-	res, err := FindAll(root, ptr)
+	res, err := findAll(root, ptr, true)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +64,11 @@ func Find(root *yaml.Node, ptr string) (*yaml.Node, error) {
 	return res[0], nil
 }
 
-// find recursively matches a token against a yaml node.
-func find(root *yaml.Node, toks []string) ([]*yaml.Node, error) {
-	next, err := match(root, toks[0])
+// find recursively matches a token against a yaml node
+// If matchRequired is true, then ErrNotFound will be returned if any node does not contain the expected path,
+// otherwise all matches will be returned.
+func find(root *yaml.Node, toks []string, matchRequired bool) ([]*yaml.Node, error) {
+	next, err := match(root, toks[0], matchRequired)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +76,17 @@ func find(root *yaml.Node, toks []string) ([]*yaml.Node, error) {
 		return next, nil
 	}
 
-	var res []*yaml.Node
+	res := make([]*yaml.Node, 0)
 	for _, n := range next {
-		f, err := find(n, toks[1:])
+		f, err := find(n, toks[1:], matchRequired)
 		if err != nil {
-			return nil, err
+			if matchRequired && errors.Is(err, ErrNotFound) {
+				return res, err
+			}
 		}
-		res = append(res, f...)
+		if f != nil && len(f) > 0 {
+			res = append(res, f...)
+		}
 	}
 	return res, nil
 }
@@ -83,7 +101,7 @@ func find(root *yaml.Node, toks []string) ([]*yaml.Node, error) {
 // If tok is ~{...}, it will parse the {...} object as a JSON object
 // and use it to filter the array using a treeSubsetPred.
 // If tok is ~[key=value] it will use keyValuePred to filter the array.
-func match(root *yaml.Node, tok string) ([]*yaml.Node, error) {
+func match(root *yaml.Node, tok string, matchRequired bool) ([]*yaml.Node, error) {
 	c := root.Content
 	switch root.Kind {
 	case yaml.MappingNode:
@@ -117,11 +135,14 @@ func match(root *yaml.Node, tok string) ([]*yaml.Node, error) {
 		}
 	case yaml.DocumentNode:
 		// skip document nodes.
-		return match(c[0], tok)
+		return match(c[0], tok, matchRequired)
 	default:
 		return nil, fmt.Errorf("unhandled node type: %v (%v)", root.Kind, root.Tag)
 	}
-	return nil, fmt.Errorf("%q: %w", tok, ErrNotFound)
+	if matchRequired {
+		return nil, fmt.Errorf("%q: %w", tok, ErrNotFound)
+	}
+	return nil, nil
 }
 
 type nodePredicate func(*yaml.Node) bool
